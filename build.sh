@@ -171,6 +171,11 @@ BUILD_PREFIX="cicd"
 [[ "$ACTION" != "$BUILD_PREFIX"* ]] && error "Action $ACTION is not recognized as a valid action."
 __no_req "$ACTION" && error "Action $ACTION is not recognized as a valid action." && exit 1
 
+# Fill in variables if not supplied by CICD
+[ -z "$USERN" ] && export USERN=cronocide
+[ -z "$GIT_REPO_NAME" ] && export GIT_REPO_NAME=git.cronocide.net
+
+
 # Define needed build strings
 DIR=$(cd $(dirname $BASH_SOURCE[0]) && pwd)
 PROJECT_NAME="$(git config --local remote.origin.url|sed -n 's#.*/\([^.]*\)\.git#\1#p')"
