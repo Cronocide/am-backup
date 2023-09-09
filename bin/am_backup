@@ -1,0 +1,135 @@
+#!python3
+
+import re
+import os
+import sys
+import json
+import logging
+import argparse
+import requests
+from http.cookiejar import MozillaCookieJar
+
+class LoggingFormatter(logging.Formatter):
+	def format(self, record):
+		module_max_width = 30
+		datefmt='%Y/%m/%d/ %H:%M:%S'
+		level = f'[{record.levelname}]'.ljust(9)
+		if 'log_module' not in dir(record) :
+			modname = str(record.module)+'.'+str(record.name)
+		else :
+			modname = record.log_module
+		modname = (f'{modname}'[:module_max_width-1] + ']').ljust(module_max_width)
+		final = "%-7s %s [%s %s" % (self.formatTime(record, self.datefmt), level, modname, record.getMessage())
+		return final
+
+if __name__ == '__main__':
+
+	# Command-line client
+	# Define constants
+	config_template = {'am_backup': {}}
+
+	# Gather Argument options
+	EXAMPLE_TEXT='Example:\n\tam_backup -h'
+	parser = argparse.ArgumentParser(epilog=EXAMPLE_TEXT,formatter_class=argparse.RawDescriptionHelpFormatter)
+	parser.add_argument('start', action='store', help='The start of your library\'s song index to get')
+	parser.add_argument('end', action='store', help='The end of your library\'s song index to get')
+	parser.add_argument('-r', '--reverse', action='store_true', help='Reverse the list of URLs (last to first)')
+	parser.add_argument('-l', '--log', action='store', help='Specify a file to log to.')
+	parser.add_argument('-v', '--verbose', action='count', help='Include verbose information in the output. Add \'v\'s for more output.',default=0)
+	args = parser.parse_args()
+
+	log = logging.getLogger(__name__)
+	log = logging.LoggerAdapter(log,{'log_module':'am_backup'})
+
+	# Configure logging
+	log_options = [logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+	if 'VERBOSITY_LEVEL' in os.environ.keys() :
+		args.verbose = int(os.environ['VERBOSITY_LEVEL'])
+	if not args.verbose :
+		args.verbose = 0
+	if args.verbose > 3 :
+		args.verbose = 3
+	if args.log :
+		logging.basicConfig(level=log_options[args.verbose],filename=args.log)
+		logging.getLogger().addHandler(logging.StreamHandler(sys.stderr))
+	else :
+		logging.basicConfig(level=log_options[args.verbose])
+	logging.getLogger().handlers[0].setFormatter(LoggingFormatter())
+	logging.propagate=True
+
+	# Open cookies file
+	for variable in ['COOKIES_TXT_PATH','OUTPUT_PATH'] :
+		if variable not in os.environ.keys() :
+			logging.error(f'Missing required ENV variable \'{variable}\'')
+			exit(1)
+
+	# Create login session
+	apple_music_cookies = MozillaCookieJar(os.environ['COOKIES_TXT_PATH'])
+	try :
+		apple_music_cookies.load()
+	except Exception as e :
+		logging.error('Couldn\'t load cookies file: ' + str(e))
+
+	s = int(args.start)
+	e = int(args.end)
+
+	def get_login_token() :
+		home_page = apple_music.get("https://beta.music.apple.com").text
+		index_js_uri = re.search(r"/(assets/index-legacy-[^/]+\.js)", home_page).group(1)
+		index_js_page = apple_music.get(f"https://beta.music.apple.com/{index_js_uri}").text
+		token = re.search('(?=eyJh)(.*?)(?=")', index_js_page).group(1)
+		apple_music.headers.update({"authorization": f"Bearer {token}"})
+		apple_music.headers.update({
+			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0",
+			"Accept": "application/json",
+			"Accept-Language": "en-US,en;q=0.5",
+			"Accept-Encoding": "gzip, deflate, br",
+			"content-type": "application/json",
+			"Media-User-Token": apple_music.cookies.get_dict()["media-user-token"],
+			"x-apple-renewal": "true",
+			"DNT": "1",
+			"Connection": "keep-alive",
+			"Sec-Fetch-Dest": "empty",
+			"Sec-Fetch-Mode": "cors",
+			"Sec-Fetch-Site": "same-site",
+			"origin": "https://beta.music.apple.com",
+		})
+		# country = apple_music.cookies.get_dict()["itua"]
+
+	def get_songs_by_index(offset, count) :
+		try :
+			results = apple_music.get('https://amp-api.music.apple.com/v1/me/library/songs?art%5Burl%5D=f&format%5Bresources%5D=map&include%5Blibrary-songs%5D=catalog&l=en-US&limit=' + str(count) + '&meta=sorts&offset=' + str(offset) + '&platform=web&sort=-dateAdded')
+			songs = results.json()['resources']['songs']
+			song_batch = []
+			for song in songs :
+				song_url = songs[song]['attributes']['url']
+				song_batch.append(song_url)
+			return song_batch
+		except Exception as e :
+			logging.error('Unable to get songs: ' + str(e))
+			logging.debug(results)
+			logging.debug(results.text)
+
+	apple_music = requests.Session()
+	apple_music.cookies.update(apple_music_cookies)
+	get_login_token()
+
+	# Parse start and end and create a walk from beginning to end, then reverse the list.
+	i = s
+	song_list = []
+	while i < e :
+		o = 100
+		if (e - i) < 100 :
+			o = e - i
+		songs = get_songs_by_index(i, o)
+		# Sometimes the API returns results if the end is higher than the total count of songs. This prevents the end from being added twice.
+		for song in songs :
+			if song not in song_list :
+				song_list.append(song)
+		i += o
+
+	if args.reverse :
+		song_list.reverse()
+
+	with open(os.environ['OUTPUT_PATH'],'w') as fd :
+		fd.write('\n'.join(str(s) for s in song_list))
