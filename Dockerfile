@@ -1,11 +1,9 @@
-FROM ubuntu
-ENV PROJ_NAME=python-tool
-
-# Install Python
-FROM python:3.10.6 as PYTHON
+FROM python:3.11-bullseye as PYTHON
+ENV PROJ_NAME=am-backup
 
 # Copy project files
 ADD ./ /$PROJ_NAME
 
-# Run entrypoint
-ENTRYPOINT [""]
+RUN pip3 install -e /am-backup
+
+CMD ["am_backup","-r","0","10"]

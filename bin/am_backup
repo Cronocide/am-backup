@@ -107,8 +107,9 @@ if __name__ == '__main__':
 			return song_batch
 		except Exception as e :
 			logging.error('Unable to get songs: ' + str(e))
-			logging.debug(results)
-			logging.debug(results.text)
+			logging.error(results)
+			logging.error(results.text)
+			return None
 
 	apple_music = requests.Session()
 	apple_music.cookies.update(apple_music_cookies)
@@ -123,10 +124,11 @@ if __name__ == '__main__':
 			o = e - i
 		songs = get_songs_by_index(i, o)
 		# Sometimes the API returns results if the end is higher than the total count of songs. This prevents the end from being added twice.
-		for song in songs :
-			if song not in song_list :
-				song_list.append(song)
-		i += o
+		if songs :
+			for song in songs :
+				if song and song not in song_list :
+					song_list.append(song)
+			i += o
 
 	if args.reverse :
 		song_list.reverse()
