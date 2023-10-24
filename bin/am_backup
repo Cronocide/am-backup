@@ -108,7 +108,6 @@ if __name__ == '__main__':
 		except Exception as e :
 			logging.error('Unable to get songs: ' + str(e))
 			logging.error(results)
-			logging.error(results.text)
 			return None
 
 	apple_music = requests.Session()
@@ -118,6 +117,7 @@ if __name__ == '__main__':
 	# Parse start and end and create a walk from beginning to end, then reverse the list.
 	i = s
 	song_list = []
+	errors = 0
 	while i < e :
 		o = 100
 		if (e - i) < 100 :
@@ -128,7 +128,12 @@ if __name__ == '__main__':
 			for song in songs :
 				if song and song not in song_list :
 					song_list.append(song)
-			i += o
+		else :
+			errors += 1
+		if errors >= 5 :
+			logging.error('Too many errors, aborting.')
+			exit(1)
+		i += o
 
 	if args.reverse :
 		song_list.reverse()
