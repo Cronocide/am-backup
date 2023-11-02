@@ -78,6 +78,11 @@ if __name__ == '__main__':
 		index_js_uri = re.search(r"/(assets/index-legacy-[^/]+\.js)", home_page).group(1)
 		index_js_page = apple_music.get(f"https://beta.music.apple.com/{index_js_uri}").text
 		token = re.search('(?=eyJh)(.*?)(?=")', index_js_page).group(1)
+		try :
+			media_user_token = apple_music.cookies.get_dict()["media-user-token"]
+		except KeyError as e :
+			logging.error('Unable to get Media-User-Token, cookie is probably expired.')
+			exit(1)
 		apple_music.headers.update({"authorization": f"Bearer {token}"})
 		apple_music.headers.update({
 			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0",
@@ -85,7 +90,7 @@ if __name__ == '__main__':
 			"Accept-Language": "en-US,en;q=0.5",
 			"Accept-Encoding": "gzip, deflate, br",
 			"content-type": "application/json",
-			"Media-User-Token": apple_music.cookies.get_dict()["media-user-token"],
+			"Media-User-Token": media_user_token,
 			"x-apple-renewal": "true",
 			"DNT": "1",
 			"Connection": "keep-alive",
