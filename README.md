@@ -1,6 +1,8 @@
 # Apple Music Backup Container
 A docker container to generate a running list of songs that have been added to Apple Music. These lists can be consumed from the gamdl-docker container.
 
+![Build Status](https://jenkins.cronocide.net/buildStatus/icon?job=git.cronocide.net%2Fam-backup%2Fmaster)
+
 ## Volume mappings
 
 Map the music folder to `/data` :
