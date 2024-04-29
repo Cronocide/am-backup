@@ -1,4 +1,4 @@
-FROM python:3.11-bullseye as PYTHON
+FROM python:3.12-bullseye as PYTHON
 ENV PROJ_NAME=am-backup
 
 # Copy project files
