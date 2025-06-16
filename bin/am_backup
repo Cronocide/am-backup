@@ -29,14 +29,19 @@ if __name__ == '__main__':
 	config_template = {'am_backup': {}}
 
 	# Gather Argument options
-	EXAMPLE_TEXT='Example:\n\tam_backup -h'
+	EXAMPLE_TEXT='Example:\n\tam_backup -h\n\tam_backup --all-tracks\n\tam_backup 0 100'
 	parser = argparse.ArgumentParser(epilog=EXAMPLE_TEXT,formatter_class=argparse.RawDescriptionHelpFormatter)
-	parser.add_argument('start', action='store', help='The start of your library\'s song index to get')
-	parser.add_argument('end', action='store', help='The end of your library\'s song index to get')
+	parser.add_argument('--all-tracks', action='store_true', help='Retrieve all tracks from your library')
+	parser.add_argument('start', action='store', nargs='?', help='The start of your library\'s song index to get')
+	parser.add_argument('end', action='store', nargs='?', help='The end of your library\'s song index to get')
 	parser.add_argument('-r', '--reverse', action='store_true', help='Reverse the list of URLs (last to first)')
 	parser.add_argument('-l', '--log', action='store', help='Specify a file to log to.')
 	parser.add_argument('-v', '--verbose', action='count', help='Include verbose information in the output. Add \'v\'s for more output.',default=0)
 	args = parser.parse_args()
+
+	# Validate arguments
+	if not args.all_tracks and (args.start is None or args.end is None):
+		parser.error("Either --all-tracks or both start and end parameters are required")
 
 	log = logging.getLogger(__name__)
 	log = logging.LoggerAdapter(log,{'log_module':'am_backup'})
@@ -69,9 +74,6 @@ if __name__ == '__main__':
 		apple_music_cookies.load()
 	except Exception as e :
 		logging.error('Couldn\'t load cookies file: ' + str(e))
-
-	s = int(args.start)
-	e = int(args.end)
 
 	def get_login_token() :
 		home_page = apple_music.get("https://beta.music.apple.com").text
@@ -119,29 +121,195 @@ if __name__ == '__main__':
 	apple_music.cookies.update(apple_music_cookies)
 	get_login_token()
 
+	def get_all_tracks():
+		"""
+		Retrieves all tracks from the user's library.
+		This is a stub function that will be implemented to work around API limitations.
+		Args:
+			None
+		Returns:
+			list: A list of track URLs
+		"""
+		logging.info("Retrieving all tracks from library...")
+		# Example album fetch url:
+		# https://amp-api.music.apple.com/v1/me/library/albums?art%5Burl%5D=f&fields%5Balbums%5D=artistName%2CartistUrl%2Cartwork%2CcontentRating%2CeditorialArtwork%2Cname%2CplayParams%2CreleaseDate%2Curl&fields%5Bartists%5D=name%2Curl&format%5Bresources%5D=map&includeOnly=catalog%2Cartists&include%5Balbums%5D=artists&include%5Blibrary-albums%5D=artists&l=en-US&limit=100&meta=sorts&offset=100&platform=web&sort=name
+		
+		# Get a list of all albums links, paginating until we get no more albums.
+		album_hrefs = []
+		offset = 0
+		limit = 100
+		base_url = "https://amp-api.music.apple.com/v1/me/library/albums"
+		params = {
+			"art[url]": "f",
+			"fields[albums]": "artistName,artistUrl,artwork,contentRating,editorialArtwork,name,playParams,releaseDate,url",
+			"fields[artists]": "name,url",
+			"format[resources]": "map",
+			"includeOnly": "catalog,artists",
+			"include[albums]": "artists",
+			"include[library-albums]": "artists",
+			"l": "en-US",
+			"limit": limit,
+			"meta": "sorts",
+			"platform": "web",
+			"sort": "name"
+		}
+
+		while True:
+			params["offset"] = offset
+			try:
+				response = apple_music.get(base_url, params=params)
+				data = response.json()
+				
+				# Check if we have any albums in this response
+				if "resources" not in data or "library-albums" not in data["resources"]:
+					break
+					
+				albums = data["resources"]["library-albums"]
+				if not albums:
+					break
+					
+				# Collect all hrefs from this batch
+				for album_id, album_data in albums.items():
+					if "href" in album_data:
+						album_hrefs.append(album_data["href"])
+				
+				logging.info(f"Retrieved {len(album_hrefs)} albums so far...")
+				
+				# If we got fewer albums than the limit, we've reached the end
+				if len(albums) < limit:
+					break
+					
+				offset += limit
+				
+			except Exception as e:
+				logging.error(f"Error fetching albums: {str(e)}")
+				break
+				
+		logging.info(f"Total albums found: {len(album_hrefs)}")
+
+		# Retrieve all album metadata and parse out the track catalog URL
+		# https://amp-api.music.apple.com/v1/me/library/albums/l.gwuRIhc?art%5Burl%5D=f&fields%5Bartists%5D=name%2Curl&format%5Bresources%5D=map&includeOnly=catalog%2Cartists%2Ctracks&include%5Balbums%5D=artists%2Ctracks&include%5Blibrary-albums%5D=artists%2Ctracks&include%5Bmusic-videos%5D=catalog%2Cartists%2Ctracks&l=en-US&platform=web
+		
+		track_urls = set()  # Use a set to avoid duplicates
+		album_params = {
+			"art[url]": "f",
+			"fields[artists]": "name,url",
+			"format[resources]": "map",
+			"includeOnly": "catalog,artists,tracks",
+			"include[albums]": "artists,tracks",
+			"include[library-albums]": "artists,tracks",
+			"include[music-videos]": "catalog,artists,tracks",
+			"l": "en-US",
+			"platform": "web"
+		}
+
+		for album_href in album_hrefs:
+			try:
+				# Make the request to get album metadata
+				response = apple_music.get(f"https://amp-api.music.apple.com{album_href}", params=album_params)
+				data = response.json()
+				
+				if "resources" not in data:
+					logging.warning(f"No resources found in response for album {album_href}")
+					continue
+					
+				# Get album name for logging purposes
+				album_name = "Unknown Album"
+				if "library-albums" in data["resources"]:
+					for album_id, album_data in data["resources"]["library-albums"].items():
+						if "attributes" in album_data and "name" in album_data["attributes"]:
+							album_name = album_data["attributes"]["name"]
+							break
+				
+				# Process library-songs to get catalog IDs
+				tracks_found = False
+				if "library-songs" in data["resources"]:
+					for song_id, song_data in data["resources"]["library-songs"].items():
+						if "attributes" not in song_data:
+							logging.warning(f"No attributes found for song {song_id} in album {album_name} ({album_href})")
+							continue
+							
+						library_song_name = song_data["attributes"].get("name")
+						if not library_song_name:
+							logging.warning(f"No name found for song {song_id} in album {album_name} ({album_href})")
+							continue
+							
+						# Look for matching song in the catalog by name
+						if "songs" in data["resources"]:
+							for catalog_id, catalog_song in data["resources"]["songs"].items():
+								if "attributes" not in catalog_song:
+									continue
+									
+								catalog_song_name = catalog_song["attributes"].get("name")
+								if not catalog_song_name:
+									continue
+									
+								# Match by name (case-insensitive)
+								if library_song_name.lower() == catalog_song_name.lower():
+									if "url" in catalog_song["attributes"]:
+										track_urls.add(catalog_song["attributes"]["url"])
+										tracks_found = True
+										break
+				
+				if not tracks_found:
+					logging.warning(f"No tracks found for album: {album_name} ({album_href})")
+				else:
+					logging.info(f"Processed album {album_name}, total tracks found: {len(track_urls)}")
+				
+			except Exception as e:
+				logging.error(f"Error processing album {album_href}: {str(e)}")
+				continue
+
+		logging.info(f"Total unique tracks found: {len(track_urls)}")
+		return list(track_urls)
+
+	def get_recent_tracks(start, end):
+		"""
+		Retrieves a range of recently added tracks from the user's library.
+		
+		Args:
+			start (int): The starting index of tracks to retrieve
+			end (int): The ending index of tracks to retrieve
+			
+		Returns:
+			list: A list of track URLs
+		"""
+		song_list = []
+		errors = 0
+		i = start
+		
+		while i < end:
+			o = 100
+			if (end - i) < 100:
+				o = end - i
+			songs = get_songs_by_index(i, o)
+			# Sometimes the API returns results if the end is higher than the total count of songs. This prevents the end from being added twice.
+			if songs:
+				for song in songs:
+					if song and song not in song_list:
+						song_list.append(song)
+			else:
+				errors += 1
+			if errors >= 5:
+				logging.error('Too many errors, aborting.')
+				exit(1)
+			i += o
+			
+		return song_list
+
 	# Parse start and end and create a walk from beginning to end, then reverse the list.
-	i = s
 	song_list = []
-	errors = 0
-	while i < e :
-		o = 100
-		if (e - i) < 100 :
-			o = e - i
-		songs = get_songs_by_index(i, o)
-		# Sometimes the API returns results if the end is higher than the total count of songs. This prevents the end from being added twice.
-		if songs :
-			for song in songs :
-				if song and song not in song_list :
-					song_list.append(song)
-		else :
-			errors += 1
-		if errors >= 5 :
-			logging.error('Too many errors, aborting.')
-			exit(1)
-		i += o
+
+	if args.all_tracks:
+		song_list = get_all_tracks()
+	else:
+		s = int(args.start)
+		e = int(args.end)
+		song_list = get_recent_tracks(s, e)
 
 	if args.reverse :
 		song_list.reverse()
 
 	with open(os.environ['OUTPUT_PATH'],'w') as fd :
 		fd.write('\n'.join(str(s) for s in song_list))
+ 

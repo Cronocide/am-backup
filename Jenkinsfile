@@ -14,6 +14,7 @@ pipeline {
 		booleanParam(name: 'PUBLISH', defaultValue: true, description: 'Publish this project.')
 		booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Deploy this project.')
 	}
+	triggers { cron('H 3 * * 1') }
 	environment {
 		WORKSPACE_PATH = "/opt/nomad/alloc/${NOMAD_ALLOC_ID}/${NOMAD_TASK_NAME}${WORKSPACE}"
 		DESCRIPTION = "Apple Music Backup Container"
