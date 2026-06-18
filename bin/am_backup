@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
 	def get_login_token() :
 		home_page = apple_music.get("https://beta.music.apple.com").text
-		index_js_uri = re.search(r"/(assets/index[~-][^/\"]+\.js)",, home_page)
+		index_js_uri = re.search(r"/(assets/index[~-][^/\"]+\.js)", home_page)
 		if index_js_uri :
 			index_js_uri = index_js_uri.group(1)
 		else :
